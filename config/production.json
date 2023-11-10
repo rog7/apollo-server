@@ -1,0 +1,4 @@
+{
+  "jwtSecret": "apollo_jwtSecret",
+  "db": "apollo_db"
+}
