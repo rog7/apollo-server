@@ -55,7 +55,7 @@ const userSchema = new mongoose.Schema(
               Math.floor(Date.now() / 1000) +
               numberOfMinutesBeforeExpiration * 60,
           },
-          config.get("jwtSecret")
+          "apollo"
         );
         return token;
       },
@@ -71,7 +71,7 @@ const userSchema = new mongoose.Schema(
               Math.floor(Date.now() / 1000) +
               numberOfMinutesBeforeExpiration * 60,
           },
-          config.get("jwtSecret")
+          "apollo"
         );
         return token;
       },

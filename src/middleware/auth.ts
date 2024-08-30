@@ -9,7 +9,7 @@ export function auth(req: any, res: any, next: any) {
   const token = authHeader.split(" ")[1];
 
   try {
-    const decoded = jwt.verify(token, config.get("jwtSecret"));
+    const decoded = jwt.verify(token, "apollo");
     req.user = decoded;
     next();
   } catch (error) {

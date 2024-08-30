@@ -1,11 +1,11 @@
-import { priceId, stripeSecretKey } from "./StripeValues";
+import { STRIPE_KEY } from "./globalVars";
 
-const stripe = require("stripe")(stripeSecretKey);
+const stripe = require("stripe")(STRIPE_KEY);
 
 export const userHasActiveSubscription = async (email: string) => {
   try {
     const subscriptions = await stripe.subscriptions.list({
-      price: priceId,
+      price: "priceId",
       status: "active", // Only active subscriptions
     });
 

@@ -1,25 +1,32 @@
+import sendGridMailer from "@sendgrid/mail";
+import { SupabaseClient } from "@supabase/supabase-js";
+import bcrypt from "bcrypt";
 import express from "express";
+import { rateLimit } from "express-rate-limit";
+import jwt, { JwtPayload } from "jsonwebtoken";
+import _ from "lodash";
+import mongoose from "mongoose";
+import Stripe from "stripe";
 import {
   validResetPassword,
   validateLogin,
   validateNewPassword,
 } from "../models/auth";
-import { User, createUser } from "../models/user";
-import bcrypt from "bcrypt";
-import { generateRandomCode } from "../utils/generateRandomCode";
 import { PasswordReset } from "../models/passwordReset";
-import sendGridMailer from "@sendgrid/mail";
-import { SignUpCodeCheck } from "../models/SignUpCodeCheck";
-import _ from "lodash";
-import { generateFutureDateTime } from "../utils/dateUtils";
-import { rateLimit } from "express-rate-limit";
 import { RefreshToken, validateRefreshTokenId } from "../models/refreshToken";
-import jwt, { JwtPayload } from "jsonwebtoken";
-import config from "config";
-import mongoose from "mongoose";
+import { SignUpCodeCheck } from "../models/SignUpCodeCheck";
+import { User, createUser } from "../models/user";
+import { generateFutureDateTime } from "../utils/dateUtils";
+import { generateAuthToken } from "../utils/generateAuthToken";
+import { generateRandomCode } from "../utils/generateRandomCode";
+import {
+  enableTrial,
+  numberOfDaysForTrial,
+  STRIPE_KEY,
+} from "../utils/globalVars";
+import { userHasPurchasedApollo } from "../utils/activeCampaignHelpers";
 import { userHasActiveSubscription } from "../utils/userHasActiveSubscription";
-import { Validate } from "../models/validate";
-import { userHasPurchasedApollo } from "../utils/userHasPurchasedApollo";
+const stripe: Stripe = require("stripe")(STRIPE_KEY);
 
 const router = express.Router();
 
@@ -34,34 +41,145 @@ const loginAccountLimiter = rateLimit({
 });
 
 /**
- * Authorize user
+ * Send auth code
  */
-router.post("/authorize", loginAccountLimiter, async (req, res) => {
-  const email = req.body.email;
+router.post("/send_auth_code", async (req: any, res: any) => {
+  const email = req.body.email as string;
+  const supabase = req.supabase as SupabaseClient;
 
-  const validation = await Validate.findOne({
-    email,
-  });
+  const { data, error } = await supabase
+    .from("users")
+    .select("email")
+    .eq("email", email.toLowerCase());
 
-  // Check to see if user has already been authorized
-  if (!validation) {
-    // Check to see if Apollo was purchased with provided email
-    const purchasedApollo = await userHasPurchasedApollo(email);
+  const emails = data!.map((value) => value.email as string);
 
-    if (purchasedApollo) {
-      const validate = new Validate({
-        email,
+  if (!emails.includes(email.toLowerCase())) {
+    // Send auth code to potential user
+    const authCode = generateRandomCode(6);
+
+    // Get the current date and time
+    let expirationTimestamp = new Date();
+
+    // Add 15 minutes
+    expirationTimestamp.setMinutes(expirationTimestamp.getMinutes() + 10);
+
+    const emailValue = email.toLowerCase();
+
+    const { data, error } = await supabase.from("auth_codes").insert({
+      email: emailValue,
+      code: authCode,
+      expiration_timestamp: expirationTimestamp,
+    });
+
+    try {
+      sendGridMailer.setApiKey(process.env.SENDGRID_API_KEY as string);
+      const msg = {
+        to: req.body.email,
+        from: {
+          name: "Roger",
+          email: "roger@suavekeys.com",
+        },
+        templateId: "d-5c76de59d734464192aa227add434f0f",
+        asm: {
+          groupId: 21779,
+        },
+        dynamicTemplateData: {
+          authCode,
+        },
+      };
+
+      await sendGridMailer.send(msg);
+      return res.send({ message: true });
+    } catch (error: any) {
+      return res.status(500).send({ message: error.message });
+    }
+  } else {
+    return res.status(401).send({ message: "Unauthorized access" });
+  }
+});
+
+/**
+ * Auth code check
+ */
+router.post("/auth_code_check", async (req: any, res: any) => {
+  const email = req.body.email as string;
+  const authCode = req.body.authCode;
+
+  const supabase = req.supabase as SupabaseClient;
+
+  const { data, error } = await supabase
+    .from("auth_codes")
+    .select("code")
+    .eq("email", email.toLowerCase())
+    .gt("expiration_timestamp", new Date().toISOString())
+    .order("id", { ascending: false })
+    .limit(1);
+
+  const code = data?.map((value) => value.code)[0] as string | null;
+
+  if (authCode === code) {
+    const emailValue = email.toLowerCase();
+    // Add user to auth table
+    const { data, error } = await supabase.auth.signUp({
+      email: emailValue,
+      password: "abc123",
+    });
+
+    const isProUser = await userHasPurchasedApollo(email.toLowerCase());
+
+    const username = "user" + generateRandomCode(10);
+
+    await supabase
+      .from("users")
+      .insert({ email: emailValue, is_pro_user: isProUser, username });
+
+    if (enableTrial && !isProUser) {
+      // Trial is for 7 days
+      const expirationDate = new Date();
+      expirationDate.setUTCDate(
+        expirationDate.getUTCDate() + numberOfDaysForTrial
+      );
+
+      await supabase
+        .from("users")
+        .update({
+          trial_exp_date: expirationDate,
+        })
+        .eq("email", emailValue);
+
+      // Create customer in stripe
+      await stripe.customers.create({
+        email: emailValue,
       });
 
-      await validate.save();
+      const token = generateAuthToken(emailValue, true, true, false);
+      res.header("Authorization", "Bearer " + token);
 
-      return res.send({ message: true });
+      return res.send({
+        message: true,
+        username,
+        expirationDate,
+      });
     } else {
-      return res.status(401).send({ message: "unauthorized access" });
-    }
-  }
+      if (!isProUser) {
+        // Create customer in stripe
+        await stripe.customers.create({
+          email: emailValue,
+        });
+      }
 
-  res.status(401).send({ message: "unauthorized access" });
+      const token = generateAuthToken(emailValue, isProUser, false, false);
+      res.header("Authorization", "Bearer " + token);
+
+      return res.send({
+        message: true,
+        username,
+      });
+    }
+  } else {
+    return res.status(400).send({ message: "Invalid code" });
+  }
 });
 
 /**
@@ -212,7 +330,7 @@ router.put("/update_password", async (req, res) => {
       expired: { $gt: Date.now() },
     });
 
-    if (!resetInfo) return res.status(400).send({ message: "invalid code" });
+    if (!resetInfo) return res.status(400).send({ message: "Invalid code" });
 
     const user = await User.findOne({ email: resetInfo.email });
 
@@ -255,7 +373,7 @@ router.post("/password_reset_code_check", async (req, res) => {
   if (resetInfo !== null) {
     res.send({ message: true });
   } else {
-    res.status(400).send({ message: "invalid code" });
+    res.status(400).send({ message: "Invalid code" });
   }
 });
 
@@ -306,7 +424,7 @@ router.post("/sign_up_code_check", async (req, res) => {
       return res.status(500).send({ message: error.message });
     }
   } else {
-    res.status(400).send({ message: "invalid code" });
+    res.status(400).send({ message: "Invalid code" });
   }
 });
 
@@ -324,7 +442,7 @@ router.post("/check_refresh", async (req, res) => {
     // Verify and decode the refresh token
     const decodedToken = jwt.verify(
       refreshTokenObj.refreshToken,
-      config.get("jwtSecret")
+      "apollo"
     ) as JwtPayload;
 
     // Get the expiration time from the decoded token

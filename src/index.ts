@@ -1,9 +1,10 @@
 import express from "express";
 import initializeRoutes from "./startup/routes";
 import winston from "winston";
-import { initializeDB } from "./startup/db";
 import cors from "cors";
 import compression from "compression";
+import { attachSupabase } from "./middleware/supabase";
+import bodyParser from "body-parser";
 
 const app = express();
 app.use(
@@ -17,8 +18,12 @@ app.use(
   })
 );
 app.use(compression());
+
+// Attach the supabase instance to all routes
+app.use(attachSupabase);
+app.use(bodyParser.json({ limit: "50mb" }));
+
 initializeRoutes(app, express);
-initializeDB(winston);
 
 const port = process.env.PORT || 3000;
 export const server = app.listen(port, () => {
