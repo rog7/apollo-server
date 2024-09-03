@@ -16,15 +16,16 @@ import { PasswordReset } from "../models/passwordReset";
 import { RefreshToken, validateRefreshTokenId } from "../models/refreshToken";
 import { SignUpCodeCheck } from "../models/SignUpCodeCheck";
 import { User, createUser } from "../models/user";
+import { userHasPurchasedApollo } from "../utils/activeCampaignHelpers";
 import { generateFutureDateTime } from "../utils/dateUtils";
 import { generateAuthToken } from "../utils/generateAuthToken";
 import { generateRandomCode } from "../utils/generateRandomCode";
 import {
+  APOLLO_SECRET_KEY,
+  STRIPE_KEY,
   enableTrial,
   numberOfDaysForTrial,
-  STRIPE_KEY,
 } from "../utils/globalVars";
-import { userHasPurchasedApollo } from "../utils/activeCampaignHelpers";
 import { userHasActiveSubscription } from "../utils/userHasActiveSubscription";
 const stripe: Stripe = require("stripe")(STRIPE_KEY);
 
@@ -442,7 +443,7 @@ router.post("/check_refresh", async (req, res) => {
     // Verify and decode the refresh token
     const decodedToken = jwt.verify(
       refreshTokenObj.refreshToken,
-      "apollo"
+      APOLLO_SECRET_KEY
     ) as JwtPayload;
 
     // Get the expiration time from the decoded token

@@ -35,3 +35,5 @@ export const ACTIVE_CAMPAIGN_BASE_URL = process.env
 
 export const ACTIVE_CAMPAIGN_API_KEY = process.env
   .ACTIVE_CAMPAIGN_API_KEY as string;
+
+export const APOLLO_SECRET_KEY = process.env.APOLLO_SECRET_KEY as string;

@@ -1,5 +1,5 @@
 import jwt from "jsonwebtoken";
-import config from "config";
+import { APOLLO_SECRET_KEY } from "./globalVars";
 
 export const generateAuthToken = (
   email: string,
@@ -16,7 +16,7 @@ export const generateAuthToken = (
       completedTrial,
       exp: Math.floor(Date.now() / 1000) + numberOfMinutesBeforeExpiration * 60,
     },
-    "apollo"
+    APOLLO_SECRET_KEY
   );
   return token;
 };

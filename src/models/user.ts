@@ -1,8 +1,8 @@
-import mongoose from "mongoose";
 import Joi from "joi";
-import config from "config";
 import jwt from "jsonwebtoken";
+import mongoose from "mongoose";
 import { dateWithoutTimestamp } from "../utils/dateUtils";
+import { APOLLO_SECRET_KEY } from "../utils/globalVars";
 
 const userSchema = new mongoose.Schema(
   {
@@ -55,7 +55,7 @@ const userSchema = new mongoose.Schema(
               Math.floor(Date.now() / 1000) +
               numberOfMinutesBeforeExpiration * 60,
           },
-          "apollo"
+          APOLLO_SECRET_KEY
         );
         return token;
       },
@@ -71,7 +71,7 @@ const userSchema = new mongoose.Schema(
               Math.floor(Date.now() / 1000) +
               numberOfMinutesBeforeExpiration * 60,
           },
-          "apollo"
+          APOLLO_SECRET_KEY
         );
         return token;
       },
