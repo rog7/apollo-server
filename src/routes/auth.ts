@@ -16,13 +16,14 @@ import { PasswordReset } from "../models/passwordReset";
 import { RefreshToken, validateRefreshTokenId } from "../models/refreshToken";
 import { SignUpCodeCheck } from "../models/SignUpCodeCheck";
 import { User, createUser } from "../models/user";
-import { userHasPurchasedApollo } from "../utils/activeCampaignHelpers";
+import { addTagToContact, userHasPurchasedApollo } from "../utils/kitHelpers";
 import { generateFutureDateTime } from "../utils/dateUtils";
 import { generateAuthToken } from "../utils/generateAuthToken";
 import { generateRandomCode } from "../utils/generateRandomCode";
 import {
   APOLLO_SECRET_KEY,
   STRIPE_KEY,
+  enableFreeVersion,
   enableTrial,
   numberOfDaysForTrial,
 } from "../utils/globalVars";
@@ -54,8 +55,12 @@ router.post("/send_auth_code", async (req: any, res: any) => {
     .eq("email", email.toLowerCase());
 
   const emails = data!.map((value) => value.email as string);
+  const isProUser = await userHasPurchasedApollo(email);
 
-  if (!emails.includes(email.toLowerCase())) {
+  if (
+    !emails.includes(email.toLowerCase()) &&
+    (isProUser || enableTrial || enableFreeVersion)
+  ) {
     // Send auth code to potential user
     const authCode = generateRandomCode(6);
 
@@ -128,6 +133,9 @@ router.post("/auth_code_check", async (req: any, res: any) => {
     });
 
     const isProUser = await userHasPurchasedApollo(email.toLowerCase());
+
+    // Add Apollo User tag to email
+    await addTagToContact(email, "apolloUser");
 
     const username = "user" + generateRandomCode(10);
 

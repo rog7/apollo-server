@@ -36,6 +36,7 @@
     "express-rate-limit": "^6.7.0",
     "joi": "^17.9.2",
     "jsonwebtoken": "^9.0.0",
+    "lodash": "^4.17.21",
     "moment-timezone": "^0.5.43",
     "mongoose": "^7.3.1",
     "stripe": "^13.2.0",

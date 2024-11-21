@@ -9,6 +9,7 @@ import { generateRandomCode } from "../utils/generateRandomCode";
 import {
   APOLLO_PRICE_ID,
   couponId,
+  enableFreeVersion,
   enableTrial,
   numberOfDaysForTrial,
   paymentLink,
@@ -19,10 +20,7 @@ import { isArrayEmpty } from "../utils/isArrayEmpty";
 
 import Stripe from "stripe";
 import { generateAuthToken } from "../utils/generateAuthToken";
-import {
-  addTagToContact,
-  userHasPurchasedApollo,
-} from "../utils/activeCampaignHelpers";
+import { addTagToContact, userHasPurchasedApollo } from "../utils/kitHelpers";
 const stripe: Stripe = require("stripe")(STRIPE_KEY);
 
 const router = express.Router();
@@ -99,7 +97,7 @@ router.get("/me", async (req: any, res: any) => {
   if (data?.length === 0 || data === null)
     return res.status(400).send({ message: "invalid parameter" });
 
-  const userInfo = data![0];
+  let userInfo = data![0];
 
   let isProUser: boolean;
   if (!userInfo.is_pro_user) {
@@ -129,26 +127,45 @@ router.get("/me", async (req: any, res: any) => {
         isProUser = false;
         res.header("Authorization", "Bearer " + token);
       } else {
-        // Trial is for 7 days
-        const expirationDate = new Date();
-        expirationDate.setUTCDate(
-          expirationDate.getUTCDate() + numberOfDaysForTrial
-        );
+        if (enableTrial) {
+          // Trial is for 7 days
+          const expirationDate = new Date();
+          expirationDate.setUTCDate(
+            expirationDate.getUTCDate() + numberOfDaysForTrial
+          );
 
-        await supabase
-          .from("users")
-          .update({
-            trial_exp_date: expirationDate,
-          })
-          .eq("email", email);
+          await supabase
+            .from("users")
+            .update({
+              trial_exp_date: expirationDate,
+            })
+            .eq("email", email);
 
-        const token = generateAuthToken(
-          email,
-          (isProUser = false),
-          true,
-          false
-        );
-        res.header("Authorization", "Bearer " + token);
+          const { data } = await supabase
+            .from("users")
+            .select(
+              "username, profile_image_url, is_pro_user, trial_exp_date, promo_code, promo_code_expires_at, created_at"
+            )
+            .eq("email", email);
+
+          userInfo = data![0];
+
+          const token = generateAuthToken(
+            email,
+            (isProUser = true),
+            enableTrial,
+            false
+          );
+          res.header("Authorization", "Bearer " + token);
+        } else {
+          const token = generateAuthToken(
+            email,
+            (isProUser = false),
+            enableTrial,
+            false
+          );
+          res.header("Authorization", "Bearer " + token);
+        }
       }
     }
   } else {
@@ -157,7 +174,7 @@ router.get("/me", async (req: any, res: any) => {
   }
 
   // Create a promo code when
-  // user is not pro user, has been 24 hours since they've created their account, and they don't already have a promo code set
+  // user is not pro user, has been 10 minutes since they've created their account, and they don't already have a promo code set
   const currentTime = Math.floor(Date.now() / 1000);
   const createdAt = Math.floor(new Date(userInfo.created_at).getTime() / 1000);
   const timeDiff = currentTime - createdAt;
@@ -166,7 +183,7 @@ router.get("/me", async (req: any, res: any) => {
 
   if (
     !isProUser &&
-    timeDiff > 24 * 60 * 60 &&
+    timeDiff > 10 * 60 &&
     userInfo.promo_code_expires_at === null
   ) {
     // User gets 24 hours to redeem discount
@@ -210,9 +227,10 @@ router.get("/me", async (req: any, res: any) => {
     apolloPrice: price,
     expirationDate: isProUser
       ? undefined
-      : userInfo.trial_exp_date === null
+      : userInfo.trial_exp_date === null || !enableTrial
       ? undefined
       : userInfo.trial_exp_date,
+    enableFreeVersion,
   });
 });
 
